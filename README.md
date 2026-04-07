@@ -1,8 +1,8 @@
-# Early Congestion Prediction & Adaptive Routing
+# Early Congestion Prediction & Adaptive Routing — 100-Node Scale
 
-> A Computer Networks simulation that **predicts congestion before it happens** and reroutes traffic proactively to prevent packet loss and delay.
+> A Computer Networks simulation that **predicts congestion before it happens** and reroutes traffic proactively to prevent packet loss and delay — scaled to a realistic 100-node topology.
 
-Traditional congestion control reacts after packet loss. This system predicts congestion at 60–70% utilization and reroutes traffic before performance degrades.
+This is the scaled-up version of the project. The core congestion prediction logic is identical to the 6-node version, but the network, routing algorithm, and simulation are redesigned for large-scale performance.
 
 [Live Demo](https://srijani-das07.github.io/Early-Congestion-Prediction-and-Adaptive-Routing/)
 
@@ -14,10 +14,10 @@ In a computer network, data packets compete for limited bandwidth. When queues f
 
 This project implements:
 
-- A **two-stage congestion detection model**
-- A **cost-based adaptive routing algorithm**
-- A **SimPy discrete-event network simulation**
-- Visualization of congestion trends and routing behavior
+- A **two-stage congestion detection model** (identical thresholds to the 6-node version)
+- A **Dijkstra-based adaptive routing algorithm** (upgraded from all-simple-paths for scalability)
+- A **SimPy discrete-event network simulation** over a 100-node random geometric graph
+- Visualization of congestion trends, heatmaps, and CDF comparisons across all nodes
 
 The system reroutes traffic at the *prediction stage*, not the failure stage.
 
@@ -44,15 +44,15 @@ Core insight: **If congestion can be predicted, it can be avoided.**
 
 ### 1. Two-Stage Congestion Detection
 
-Implemented in `congestion_monitor.py`.
+Implemented in `congestion_monitor.py`. **Thresholds are identical to the 6-node version** so results remain directly comparable.
 
 #### Stage 1 — Early Prediction (Soft Thresholds)
 
 A node is marked **PREDICTED** if any 2 of the following occur:
 
-- Queue length > 6 packets  
-- Delay > 30 ms  
-- Traffic rate > 55 packets/sec  
+- Queue length > 6 packets
+- Delay > 30 ms
+- Traffic rate > 55 packets/sec
 
 These represent ~60–70% of danger capacity.
 
@@ -60,11 +60,21 @@ These represent ~60–70% of danger capacity.
 
 A node is marked **CONGESTED** if any 2 of the following occur:
 
-- Queue length > 10 packets  
-- Delay > 50 ms  
-- Traffic rate > 80 packets/sec  
+- Queue length > 10 packets
+- Delay > 50 ms
+- Traffic rate > 80 packets/sec
 
 This two-metric requirement prevents false positives from single metric spikes.
+
+#### Routing Scores (updated for large-scale avoidance)
+
+| Status | Routing Cost |
+|--------|-------------|
+| OK | 1 (base) |
+| PREDICTED | +20 penalty |
+| CONGESTED | ∞ (hard block — node removed from graph) |
+
+The congested node cost is raised to ∞ (compared to cost 3 in the 6-node version) to **completely avoid** congested nodes in a large graph where alternate paths always exist.
 
 ---
 
@@ -72,43 +82,51 @@ This two-metric requirement prevents false positives from single metric spikes.
 
 Implemented in `adaptive_routing.py`.
 
-Each node contributes cost to a path:
+**Upgraded from `all_simple_paths` to Dijkstra's algorithm** for O(E log V) scalability across 100 nodes.
 
-- OK → cost 0  
-- PREDICTED → cost 1  
-- CONGESTED → cost 3  
+Strategy:
+1. Build a filtered graph with all **CONGESTED** nodes removed
+2. Run Dijkstra with dynamic edge weights based on node state and live queue length
+3. If no safe path exists (rare), fall back to the full graph
 
-All simple paths from source to destination are evaluated using NetworkX.
+Dynamic edge weight formula:
+```
+weight(u → v) = 1 + (20 if predicted) + (queue_length × 2)
+```
 
-The path with **minimum total cost** is selected.
-
-Rerouting is triggered at cost 1 (prediction stage), not cost 3 (congestion stage).
+This makes routing **load-aware** — even among non-congested nodes, paths through heavily queued nodes are penalised.
 
 ---
 
 ## Network Topology
 
-- 6 nodes (routers)
-- 7 bidirectional edges (links with capacity)
-- Node 2 and Node 4 receive higher simulated traffic to demonstrate prediction and rerouting
+- **100 nodes** (routers), labelled 1–100
+- **Random geometric graph** with radius 0.15 — nodes connect if within spatial proximity, mimicking real ISP mesh topology
+- **Full connectivity guaranteed** — isolated components are bridged automatically
+- **Variable edge capacities** (40–150): core nodes with higher degree receive higher capacity, reflecting real backbone links
+- ~5–8 average degree per node (sparse, realistic)
+- **~15 "hot" nodes** receive elevated traffic during simulation (high-degree nodes preferred, as in real networks)
 
 ---
 
 ## Project Structure
 
 ```
-root/
+nodes_100/
 │
-├── network_setup.py       # Builds the network graph (6 nodes, 7 edges)
-├── congestion_monitor.py  # Two-stage prediction logic per node
-├── adaptive_routing.py    # Finds least-cost path using prediction scores
-├── simulation.py          # SimPy-based discrete event simulation
-├── visualize.py           # 4-panel matplotlib output chart
+├── network_setup.py       # 100-node random geometric graph with capacity scaling
+├── congestion_monitor.py  # Two-stage prediction logic (same thresholds, ∞ cost for congested)
+├── adaptive_routing.py    # Dijkstra-based routing with hard block + dynamic queue cost
+├── simulation.py          # SimPy simulation (traffic rates tuned for 100-node scale)
+├── compare.py             # Baseline vs Early Prediction: heatmap, CDF, timeline graphs
+├── visualize.py           # Per-node visualisation helpers
 ├── run.py                 # Single command to run everything in order
-├── demo.html              # Live interactive browser demo (no install needed)
+├── index.html             # Live interactive browser demo (no install needed)
+├── package-lock.json      # Frontend dependency lock file
 ├── requirements.txt       # Python dependencies
 └── README.md              # This file
 ```
+
 ---
 
 ## How to Run
@@ -121,22 +139,32 @@ Make sure you have Python 3.8 or higher installed. You can check by running:
 python --version
 ```
 
-### Step 1 — Install Dependencies
+### Step 1 — Fork & Clone the Repository
+
+First, fork the repository on GitHub, then clone it locally:
+
+```bash
+git clone https://github.com/YOUR-USERNAME/Early-Congestion-Prediction-and-Adaptive-Routing.git
+cd Early-Congestion-Prediction-and-Adaptive-Routing/nodes_100
+```
+
+### Step 2 — Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-This installs: `networkx`, `simpy`, `matplotlib`.
+This installs: `networkx`, `simpy`, `matplotlib`, `numpy`.
 
-### Step 2 — Run Everything
+### Step 3 — Run Everything
 
 ```bash
 python run.py
 ```
+
 ### Running the Live Demo (Optional)
 
-Open `demo.html` in any browser. No installation required. Use the sliders to control traffic rates per node in real time and watch the routing adapt live.
+Open `index.html` in any browser or use the demo link provided in the description. No installation required. Use the sliders to control traffic rates per node in real time and watch the routing adapt live.
 
 ---
 
@@ -145,11 +173,11 @@ Open `demo.html` in any browser. No installation required. Use the sliders to co
 | Concept | Where It's Applied |
 |---|---|
 | **Congestion Control** | Two-stage threshold system in `congestion_monitor.py` |
-| **Routing Algorithms** | Shortest/least-cost path in `adaptive_routing.py` using all-simple-paths |
+| **Routing Algorithms** | Dijkstra's shortest path with dynamic weights in `adaptive_routing.py` |
 | **Quality of Service (QoS)** | Prioritising low-congestion paths to maintain throughput and reduce delay |
-| **Network Monitoring** | Continuous per-node tracking of queue length, delay, and traffic rate |
+| **Network Monitoring** | Continuous per-node tracking of queue length, delay, and traffic rate across all 100 nodes |
 | **Discrete Event Simulation** | SimPy environment simulating packet arrivals using exponential distribution |
-| **Graph Theory** | NetworkX graph with weighted edges representing link capacity |
+| **Graph Theory** | NetworkX random geometric graph with degree-scaled edge capacities |
 
 ---
 
@@ -158,22 +186,49 @@ Open `demo.html` in any browser. No installation required. Use the sliders to co
 | Tool | Purpose |
 |---|---|
 | **Python 3.8+** | Core programming language |
-| **NetworkX** | Network graph creation and path enumeration |
+| **NetworkX** | 100-node graph creation, Dijkstra path finding |
+| **NumPy** | Random geometric graph generation and degree calculations |
 | **SimPy** | Discrete-event simulation engine for modelling time and packet arrivals |
-| **Matplotlib** | Chart generation and result visualisation |
-| **HTML/CSS/JavaScript** | Live interactive browser demo (`demo.html`) |
+| **Matplotlib** | Chart generation — heatmaps, CDFs, timeline graphs |
+| **HTML/CSS/JavaScript** | Live interactive browser demo (`index.html`) |
 | **Chart.js** | Real-time charts inside the browser demo |
 
 ---
 
-## Results
+## Key Results
+
+With early prediction enabled across 100 nodes:
+
+- **~15 hot nodes** identified and monitored for early congestion buildup
+- **Baseline**: hot nodes breach soft threshold then hard threshold — queues remain elevated
+- **Early Prediction**: rerouting triggered as soon as soft threshold crossed — queue climbs then recovers (visible "catch and recover" pattern)
+- **CDF curve** for Early Prediction shifted clearly left of baseline — lower queue lengths across the network
+- **Heatmap**: "Baseline Congested" column dark for hot nodes; "Predicted Congested" near-zero
+
+---
+
+## Difference from the 6-Node Version
+
+| Aspect | 6-Node Version | 100-Node Version |
+|--------|---------------|-----------------|
+| **Nodes / Edges** | 6 nodes, 7 edges | 100 nodes, ~300+ edges |
+| **Topology** | Hand-crafted fixed graph | Random geometric graph (ISP-like) |
+| **Routing algorithm** | `all_simple_paths` (exhaustive) | Dijkstra (O(E log V)) |
+| **Congested node cost** | 3 | ∞ (hard block) |
+| **Hot nodes** | Node 2, Node 4 (fixed) | ~15 high-degree nodes (dynamic) |
+| **Edge capacity** | Fixed values | Degree-scaled (40–150) |
+| **Congestion thresholds** | Same | Same (identical, for comparability) |
+
+---
+
+## Conclusion
 
 Compared to no early prediction:
 
 - Reduced packet loss (queues avoided before overflow)
-- Lower end-to-end delay
+- Lower end-to-end delay across a realistic large-scale network
 - Improved throughput
-- Better traffic distribution across nodes
+- Better traffic distribution — hot nodes offloaded before saturation
 - Fewer nodes reaching hard congestion state
 
 ---
@@ -182,9 +237,10 @@ Compared to no early prediction:
 
 - Predictive rather than reactive
 - Lightweight (no ML, no DPI)
+- Dijkstra ensures scalability — runs efficiently on 100+ node graphs
 - Two-metric validation reduces false positives
-- Scalable threshold model
-- Path diversity awareness (longer clean path preferred over shorter congested one)
+- Queue-length-aware routing provides dynamic load balancing
+- Hard block on congested nodes ensures they are never used as relay points
 
 ---
 
@@ -196,6 +252,7 @@ Compared to no early prediction:
 - Simplified queue drain model
 - Assumes global state visibility (SDN-like control)
 - No packet prioritization
+- Random geometric graph may produce varying topologies across seeds
 
 ---
 
