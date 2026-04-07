@@ -49,9 +49,11 @@ class NodeMonitor:
         return self.predicted or self.congested
 
     def get_routing_score(self):
-        if self.congested: return 3
-        if self.predicted: return 1
-        return 0
+        if self.congested:
+            return 1000   # VERY HIGH → avoid completely
+        if self.predicted:
+            return 50     # moderate penalty
+        return 1          # small base cost
 
     def report(self):
         if self.congested:
